@@ -89,6 +89,11 @@ name_key = DEVPROPKEY()
 ctypes.memmove(name_key.fmtid, uuid.UUID('{a45c254e-df1c-4efd-8020-67d146a850e0}').bytes_le, 16)
 name_key.pid = 14
 
+# Windows PnP DEVPKEY_Device_IsConnected ({83da6326-97a6-4088-9453-a1923f573b29}, 15)
+conn_key = DEVPROPKEY()
+ctypes.memmove(conn_key.fmtid, uuid.UUID('{83da6326-97a6-4088-9453-a1923f573b29}').bytes_le, 16)
+conn_key.pid = 15
+
 APP_NAME = "Xiaomi Speaker Battery Tray"
 MUTEX_NAME = r"Local\Xiaomi_Sound_Pocket_Battery_Monitor_Mutex"
 STARTUP_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -223,8 +228,16 @@ class XiaomiBatteryMonitor:
                 cfgmgr32.CM_Get_DevNode_PropertyW(dn, ctypes.byref(name_key), ctypes.byref(propType), name_buf, ctypes.byref(name_size), 0)
                 raw_name = name_buf.value
                 if self.target_name.lower() in raw_name.lower():
-                    found_pct = int(buf[0])
-                    return
+                    # Check whether this Bluetooth DevNode is actively connected
+                    c_buf = (ctypes.c_byte * 16)()
+                    c_size = wintypes.ULONG(16)
+                    is_active = True
+                    if cfgmgr32.CM_Get_DevNode_PropertyW(dn, ctypes.byref(conn_key), ctypes.byref(propType), c_buf, ctypes.byref(c_size), 0) == 0:
+                        is_active = (c_buf[0] != 0)
+
+                    if is_active:
+                        found_pct = int(buf[0])
+                        return
 
             child = wintypes.DWORD()
             if cfgmgr32.CM_Get_Child(ctypes.byref(child), dn, 0) == 0:
