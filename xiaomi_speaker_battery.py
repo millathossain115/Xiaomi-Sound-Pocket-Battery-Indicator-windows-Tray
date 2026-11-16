@@ -8,6 +8,8 @@ import os
 import sys
 import time
 import threading
+import contextlib
+import tempfile
 import winreg
 import ctypes
 from ctypes import wintypes
@@ -26,25 +28,35 @@ cfgmgr32 = ctypes.windll.cfgmgr32
 try:
     user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
 except Exception:
-    pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
-# Patch pystray's win32 implementation for razor-sharp native DPI icon loading
+# Monkey-patch pystray._win32 for razor-sharp native DPI icon loading
 try:
     import pystray._win32 as _pystray_win32
 
-    def _custom_serialized_image(image, format):
-        import tempfile
-        fd, path = tempfile.mkstemp(suffix=f'.{format.lower()}')
-        os.close(fd)
+    @contextlib.contextmanager
+    def _custom_serialized_image(image, format, extension=None):
+        fd, path = tempfile.mkstemp('.%s' % (extension or format.lower()))
         try:
-            image.save(path, format=format)
-            with open(path, 'rb') as fp:
-                yield path
+            with os.fdopen(fd, 'wb') as f:
+                if str(format).upper() == 'ICO':
+                    image.save(f, format='ICO', sizes=[(image.width, image.height)])
+                else:
+                    image.save(f, format=format)
+            yield path
         finally:
             try:
                 os.unlink(path)
             except Exception:
                 pass
+
+    _pystray_win32.serialized_image = _custom_serialized_image
 
     def _custom_assert_icon_handle(self):
         if self._icon_handle:
@@ -59,7 +71,6 @@ try:
                 _pystray_win32.win32.LR_LOADFROMFILE
             )
 
-    _pystray_win32.serialized_image = _custom_serialized_image
     _pystray_win32.Icon._assert_icon_handle = _custom_assert_icon_handle
 except Exception:
     pass
@@ -386,6 +397,45 @@ class XiaomiBatteryMonitor:
         except Exception as e:
             print("Startup toggle error:", e)
 
+    def promote_taskbar_icon(self):
+        """Automatically promote icon to always show on Windows 11 taskbar instead of overflow menu."""
+        def _promote():
+            time.sleep(1.5)
+            try:
+                current_exe = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                current_name = os.path.basename(current_exe).lower()
+                base = r"Control Panel\NotifyIconSettings"
+                k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, base, 0, winreg.KEY_READ)
+                i = 0
+                target_keys = []
+                while True:
+                    try:
+                        sub = winreg.EnumKey(k, i)
+                        i += 1
+                        sub_k = winreg.OpenKey(k, sub, 0, winreg.KEY_READ)
+                        try:
+                            exe_path, _ = winreg.QueryValueEx(sub_k, "ExecutablePath")
+                            if "xiaomi" in exe_path.lower() or os.path.basename(exe_path).lower() == current_name:
+                                target_keys.append(sub)
+                        except Exception:
+                            pass
+                        winreg.CloseKey(sub_k)
+                    except OSError:
+                        break
+                winreg.CloseKey(k)
+
+                for sub in target_keys:
+                    try:
+                        sub_k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, f"{base}\\{sub}", 0, winreg.KEY_ALL_ACCESS)
+                        winreg.SetValueEx(sub_k, "IsPromoted", 0, winreg.REG_DWORD, 1)
+                        winreg.CloseKey(sub_k)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        threading.Thread(target=_promote, daemon=True).start()
+
     def _get_status_text(self):
         if not self.is_connected:
             return f"{self.target_name}: Disconnected"
@@ -404,6 +454,7 @@ class XiaomiBatteryMonitor:
             self.icon.title = self._get_status_text()
             if not self.icon.visible:
                 self.icon.visible = True
+                self.promote_taskbar_icon()
         else:
             # Automated taskbar behavior: completely hide when disconnected
             if self.icon.visible:
@@ -473,6 +524,7 @@ class XiaomiBatteryMonitor:
             self.battery_pct = pct
             self.is_wired = wired
             icon.visible = True
+            self.promote_taskbar_icon()
         else:
             self.is_connected = False
             self.is_wired = False
