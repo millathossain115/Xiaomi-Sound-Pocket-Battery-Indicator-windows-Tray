@@ -1,6 +1,6 @@
 """
 Xiaomi Sound Pocket / Pocket Speaker 2 Battery Monitor for Windows System Tray
-Automated Tray Presence, Native Windows 11 Fluent Horizontal Battery Capsule,
+Automated Tray Presence, Native Windows 11 Fluent Multi-Style High-Visibility Rendering,
 Type-C Wired Charging Detection, and Single-Instance Win32 Mutex.
 """
 
@@ -93,6 +93,7 @@ APP_NAME = "Xiaomi Speaker Battery Tray"
 MUTEX_NAME = r"Local\Xiaomi_Sound_Pocket_Battery_Monitor_Mutex"
 STARTUP_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 STARTUP_REG_NAME = "XiaomiSpeakerBatteryTray"
+CONFIG_REG_KEY = r"Software\XiaomiSpeakerBatteryTray"
 
 # Hardware IDs for Xiaomi Audio & Type-C Chipset
 XIAOMI_VID = 0x05D6
@@ -139,6 +140,7 @@ class XiaomiBatteryMonitor:
         self.running = True
         self.icon = None
         self.tray_size = self._get_native_tray_size()
+        self.current_style = self._load_saved_style()
 
     def _get_native_tray_size(self):
         """Query physical taskbar icon metric for exact 1:1 pixel rendering."""
@@ -150,17 +152,35 @@ class XiaomiBatteryMonitor:
             pass
         return 20  # Fallback for standard 125% DPI display
 
+    def _load_saved_style(self):
+        """Load preferred style from registry (defaults to 'clean')."""
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, CONFIG_REG_KEY, 0, winreg.KEY_READ)
+            val, _ = winreg.QueryValueEx(key, "IconStyle")
+            winreg.CloseKey(key)
+            if val in ("clean", "brackets", "topbar", "speaker", "capsule", "waves"):
+                return val
+        except Exception:
+            pass
+        return "clean"  # Default: borderless clean bold digits matching mouse icon
+
+    def _save_style(self, style_name):
+        try:
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, CONFIG_REG_KEY)
+            winreg.SetValueEx(key, "IconStyle", 0, winreg.REG_SZ, style_name)
+            winreg.CloseKey(key)
+        except Exception:
+            pass
+
     def check_wired_connection(self):
         """Check if speaker is wired directly to PC via USB Type-C cable."""
         try:
-            # Check USB DevNodes for JieLi / Xiaomi USB IDs or Device Name
             found_wired = False
 
             def scan_usb(dn):
                 nonlocal found_wired
                 if found_wired:
                     return
-                # Get device ID
                 id_buf = (ctypes.c_wchar * 512)()
                 if cfgmgr32.CM_Get_Device_IDW(dn, id_buf, 512, 0) == 0:
                     dev_id = id_buf.value.lower()
@@ -222,65 +242,54 @@ class XiaomiBatteryMonitor:
         if found_pct is not None:
             return True, found_pct, wired
         elif wired:
-            # Wired directly without Bluetooth active
             return True, self.battery_pct, True
         return False, None, False
 
-    def _draw_lightning_bolt(self, draw, x, y, scale=1.0, color=(56, 185, 255, 255)):
-        """Draw high-contrast geometric lightning bolt."""
-        pts = [
-            (int(x + 7 * scale), int(y + 0 * scale)),
-            (int(x + 0 * scale), int(y + 22 * scale)),
-            (int(x + 6 * scale), int(y + 22 * scale)),
-            (int(x + 2 * scale), int(y + 44 * scale)),
-            (int(x + 15 * scale), int(y + 16 * scale)),
-            (int(x + 8 * scale), int(y + 16 * scale)),
+    def _get_font(self, size, bold=True):
+        candidates = [
+            r"C:\Windows\Fonts\segoeuib.ttf" if bold else r"C:\Windows\Fonts\segoeui.ttf",
+            r"C:\Windows\Fonts\seguisb.ttf",
+            r"C:\Windows\Fonts\arialbd.ttf" if bold else r"C:\Windows\Fonts\arial.ttf",
         ]
-        draw.polygon(pts, fill=color)
+        for p in candidates:
+            if os.path.exists(p):
+                try:
+                    return ImageFont.truetype(p, size)
+                except Exception:
+                    pass
+        return ImageFont.load_default()
 
-    def generate_horizontal_battery_icon(self, percentage, connected, is_wired=False):
-        """
-        Generate pixel-perfect native resolution icon:
-        - Landscape aspect ratio matching authentic horizontal battery proportions
-        - Generous horizontal clearance (>15px inner margins) so numbers never crowd
-        - Segoe UI Semibold typography with subpixel Lanczos supersampling
-        - Vibrant Windows 11 Accent Blue (56, 185, 255) + lightning badge when Type-C wired charging
-        """
+    def _apply_alpha_lut(self, img):
+        r, g, b, a = img.split()
+        lut = []
+        for i in range(256):
+            if i < 25:
+                lut.append(0)
+            elif i < 110:
+                lut.append(int((i - 25) * (185.0 / 85.0)))
+            else:
+                v = int(185 + (i - 110) * (70.0 / 145.0) * 1.5)
+                lut.append(min(255, v))
+        return Image.merge('RGBA', (r, g, b, a.point(lut)))
+
+    def generate_icon(self, percentage, connected, is_wired=False):
+        """Generate icon based on the user's currently selected style."""
         scale = 4
         buf_size = self.tray_size * scale
         img = Image.new('RGBA', (buf_size, buf_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
-        # Disconnected fallback (though auto-hidden by default)
-        if not connected:
-            muted = (140, 145, 155, 255)
-            b_top = int(buf_size * 0.17)
-            b_bot = int(buf_size * 0.83)
-            b_left = int(buf_size * 0.02)
-            b_right = int(buf_size * 0.90)
-            n_left = b_right
-            n_right = int(buf_size * 0.98)
-            n_top = int(buf_size * 0.35)
-            n_bot = int(buf_size * 0.65)
-            sw = max(2, int(scale * 1.5))
-
-            draw.rounded_rectangle([b_left, b_top, b_right, b_bot], radius=int(scale * 3.5), outline=muted, width=sw)
-            draw.rounded_rectangle([n_left, n_top, n_right, n_bot], radius=int(scale * 1.2), fill=muted)
-            try:
-                font = ImageFont.truetype(r"C:\Windows\Fonts\seguisb.ttf", int(scale * 10))
-            except Exception:
-                font = ImageFont.load_default()
-            draw.text(((b_left + b_right) // 2, (b_top + b_bot) // 2), "?", font=font, fill=muted, anchor="mm")
-            return img.resize((self.tray_size, self.tray_size), Image.Resampling.LANCZOS)
-
-        # Color palette
         white = (255, 255, 255, 255)
-        accent_blue = (56, 185, 255, 255)  # Windows 11 Active Accent Blue
+        accent_blue = (56, 185, 255, 255)
         warning_red = (255, 75, 75, 255)
 
-        if is_wired:
+        if not connected:
+            frame_color = (130, 135, 145, 255)
+            num_color = frame_color
+            bolt_color = frame_color
+        elif is_wired:
             frame_color = accent_blue
-            num_color = white
+            num_color = accent_blue
             bolt_color = accent_blue
         elif percentage <= 15:
             frame_color = warning_red
@@ -291,85 +300,140 @@ class XiaomiBatteryMonitor:
             num_color = white
             bolt_color = white
 
-        # 1. Proportional landscape battery capsule dimensions
-        # Width occupies 85% of tile, height occupies 65% (sleek horizontal landscape)
-        # Stroke width = exactly 1 physical screen pixel (sw = 4 at scale 4)
-        b_left = max(2, int(scale * 1.0))
-        b_right = int(scale * 17.0)
-        b_top = int(scale * 3.5)
-        b_bot = int(scale * 16.5)
-        n_left = b_right
-        n_right = min(buf_size - 1, int(scale * 18.5))
-        n_top = int(scale * 6.5)
-        n_bot = int(scale * 13.5)
-        sw = max(2, int(scale * 0.95))
+        center_x = buf_size // 2
+        center_y = buf_size // 2
+        sw = max(2, int(scale * 1.0))  # 1 physical screen pixel
 
-        draw.rounded_rectangle([b_left, b_top, b_right, b_bot], radius=int(scale * 2.5), outline=frame_color, width=sw)
-        draw.rounded_rectangle([n_left, n_top, n_right, n_bot], radius=int(scale * 1.0), fill=frame_color)
-
-        # 2. Typography: Segoe UI Regular (clean, un-bolded, wide open gaps!)
-        font_path = r"C:\Windows\Fonts\segoeui.ttf"
-        if not os.path.exists(font_path):
-            font_path = r"C:\Windows\Fonts\seguisb.ttf"
-
-        center_x = (b_left + b_right) // 2
-        center_y = (b_top + b_bot) // 2
-
-        if is_wired:
-            # Display sharp lightning bolt badge + clean digits
-            pts = [
-                (b_left + int(scale * 1.8), center_y - int(scale * 3.5)),
-                (b_left + int(scale * 0.3), center_y + int(scale * 0.2)),
-                (b_left + int(scale * 1.8), center_y + int(scale * 0.2)),
-                (b_left + int(scale * 0.8), center_y + int(scale * 4.0)),
-                (b_left + int(scale * 3.5), center_y - int(scale * 0.8)),
-                (b_left + int(scale * 2.0), center_y - int(scale * 0.8)),
-            ]
-            draw.polygon(pts, fill=bolt_color)
-
-            if percentage == 100:
-                try:
-                    font = ImageFont.truetype(font_path, int(scale * 6.5))
-                except Exception:
-                    font = ImageFont.load_default()
-                draw.text((center_x + int(scale * 2.0), center_y), "100", font=font, fill=num_color, anchor="mm")
-            else:
-                try:
-                    font = ImageFont.truetype(font_path, int(scale * 8.0))
-                except Exception:
-                    font = ImageFont.load_default()
+        # STYLE 1: CLEAN DIGITS (MOUSE MATCH) - Maximum clarity & size
+        if self.current_style == "clean":
+            if is_wired:
+                # Small crisp lightning bolt on left
+                bolt_pts = [
+                    (int(scale * 3.8), int(scale * 2.5)),
+                    (int(scale * 1.6), int(scale * 7.0)),
+                    (int(scale * 3.8), int(scale * 7.0)),
+                    (int(scale * 2.2), int(scale * 12.0)),
+                    (int(scale * 6.2), int(scale * 5.5)),
+                    (int(scale * 4.0), int(scale * 5.5)),
+                ]
+                draw.polygon(bolt_pts, fill=bolt_color)
+                f_size = int(scale * 13.0) if percentage < 100 else int(scale * 10.5)
+                font = self._get_font(f_size, bold=True)
                 draw.text((center_x + int(scale * 2.2), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
-        else:
-            # Normal battery: Centered regular digits with generous breathing room
-            if percentage == 100:
-                try:
-                    font = ImageFont.truetype(font_path, int(scale * 7.0))
-                except Exception:
-                    font = ImageFont.load_default()
-                draw.text((center_x, center_y), "100", font=font, fill=num_color, anchor="mm")
             else:
-                try:
-                    font = ImageFont.truetype(font_path, int(scale * 8.8))
-                except Exception:
-                    font = ImageFont.load_default()
+                f_size = int(scale * 14.0) if percentage < 100 else int(scale * 11.0)
+                font = self._get_font(f_size, bold=True)
                 draw.text((center_x, center_y), str(percentage), font=font, fill=num_color, anchor="mm")
 
-        # Downscale with Lanczos for razor-sharp subpixel edges
-        final_icon = img.resize((self.tray_size, self.tray_size), Image.Resampling.LANCZOS)
+        # STYLE 2: OPEN BATTERY BRACKETS [ 80 ] (Full digits, zero vertical crowding)
+        elif self.current_style == "brackets":
+            # Left bracket [
+            draw.line([(int(scale * 3.5), int(scale * 3.0)), (int(scale * 1.5), int(scale * 3.0))], fill=frame_color, width=sw)
+            draw.line([(int(scale * 1.5), int(scale * 3.0)), (int(scale * 1.5), int(scale * 17.0))], fill=frame_color, width=sw)
+            draw.line([(int(scale * 1.5), int(scale * 17.0)), (int(scale * 3.5), int(scale * 17.0))], fill=frame_color, width=sw)
 
-        # Alpha boost LUT for solid 100% white luminance on display
-        r, g_ch, b, a = final_icon.split()
-        lut = []
-        for i in range(256):
-            if i < 30:
-                lut.append(0)
-            elif i < 110:
-                lut.append(int((i - 30) * (180.0 / 80.0)))
+            # Right bracket with nipple ]
+            draw.line([(int(scale * 16.5), int(scale * 3.0)), (int(scale * 18.5), int(scale * 3.0))], fill=frame_color, width=sw)
+            draw.line([(int(scale * 18.5), int(scale * 3.0)), (int(scale * 18.5), int(scale * 17.0))], fill=frame_color, width=sw)
+            draw.line([(int(scale * 18.5), int(scale * 17.0)), (int(scale * 16.5), int(scale * 17.0))], fill=frame_color, width=sw)
+            # Terminal nipple
+            draw.rounded_rectangle([int(scale * 18.5), int(scale * 7.0), min(buf_size - 1, int(scale * 19.8)), int(scale * 13.0)], radius=int(scale * 0.8), fill=frame_color)
+
+            if is_wired:
+                pts = [
+                    (int(scale * 4.0), center_y - int(scale * 4.5)),
+                    (int(scale * 2.5), center_y + int(scale * 0.2)),
+                    (int(scale * 4.2), center_y + int(scale * 0.2)),
+                    (int(scale * 3.0), center_y + int(scale * 5.0)),
+                    (int(scale * 6.3), center_y - int(scale * 1.0)),
+                    (int(scale * 4.5), center_y - int(scale * 1.0)),
+                ]
+                draw.polygon(pts, fill=bolt_color)
+                f_size = int(scale * 11.0) if percentage < 100 else int(scale * 9.0)
+                font = self._get_font(f_size, bold=True)
+                draw.text((center_x + int(scale * 2.0), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
             else:
-                v = int(180 + (i - 110) * (75.0 / 145.0) * 1.5)
-                lut.append(min(255, v))
-        a_boosted = a.point(lut)
-        return Image.merge('RGBA', (r, g_ch, b, a_boosted))
+                f_size = int(scale * 13.0) if percentage < 100 else int(scale * 10.5)
+                font = self._get_font(f_size, bold=True)
+                draw.text((center_x, center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+
+        # STYLE 3: TOP ACCENT BAR (— 80 —)
+        elif self.current_style == "topbar":
+            bar_y1 = int(scale * 2.0)
+            bar_y2 = int(scale * 3.5)
+            draw.rounded_rectangle([int(scale * 1.5), bar_y1, int(scale * 17.5), bar_y2], radius=int(scale * 0.8), fill=frame_color)
+            draw.rounded_rectangle([int(scale * 17.5), bar_y1 + 1, min(buf_size - 1, int(scale * 18.8)), bar_y2 - 1], radius=int(scale * 0.4), fill=frame_color)
+
+            if is_wired:
+                pts = [
+                    (int(scale * 2.5), center_y - int(scale * 4.0)),
+                    (int(scale * 1.0), center_y + int(scale * 0.5)),
+                    (int(scale * 2.8), center_y + int(scale * 0.5)),
+                    (int(scale * 1.8), center_y + int(scale * 5.0)),
+                    (int(scale * 4.8), center_y - int(scale * 0.5)),
+                    (int(scale * 3.0), center_y - int(scale * 0.5)),
+                ]
+                draw.polygon(pts, fill=bolt_color)
+                f_size = int(scale * 12.0) if percentage < 100 else int(scale * 10.0)
+                font = self._get_font(f_size, bold=True)
+                draw.text((center_x + int(scale * 1.8), center_y + int(scale * 1.0)), str(percentage), font=font, fill=num_color, anchor="mm")
+            else:
+                f_size = int(scale * 13.5) if percentage < 100 else int(scale * 11.0)
+                font = self._get_font(f_size, bold=True)
+                draw.text((center_x, center_y + int(scale * 1.0)), str(percentage), font=font, fill=num_color, anchor="mm")
+
+        # STYLE 4: SPEAKER + DIGITS (🔊 80)
+        elif self.current_style == "speaker":
+            # Speaker cone
+            draw.rectangle([int(scale * 1.0), int(scale * 7.5), int(scale * 2.8), int(scale * 12.5)], fill=frame_color)
+            cone = [(int(scale * 2.8), int(scale * 7.5)), (int(scale * 5.5), int(scale * 5.0)), (int(scale * 5.5), int(scale * 15.0)), (int(scale * 2.8), int(scale * 12.5))]
+            draw.polygon(cone, fill=frame_color)
+            if is_wired:
+                draw.line([(int(scale * 6.2), int(scale * 5.0)), (int(scale * 7.2), int(scale * 10.0)), (int(scale * 6.2), int(scale * 15.0))], fill=bolt_color, width=sw)
+
+            f_size = int(scale * 12.5) if percentage < 100 else int(scale * 10.0)
+            font = self._get_font(f_size, bold=True)
+            draw.text((int(scale * 13.2), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+
+        # STYLE 5: THIN BATTERY CAPSULE
+        else:
+            b_left = max(2, int(scale * 1.0))
+            b_right = int(scale * 17.0)
+            b_top = int(scale * 2.5)
+            b_bot = int(scale * 17.5)
+            n_left = b_right
+            n_right = min(buf_size - 1, int(scale * 18.8))
+            n_top = int(scale * 6.5)
+            n_bot = int(scale * 13.5)
+
+            draw.rounded_rectangle([b_left, b_top, b_right, b_bot], radius=int(scale * 2.5), outline=frame_color, width=sw)
+            draw.rounded_rectangle([n_left, n_top, n_right, n_bot], radius=int(scale * 1.0), fill=frame_color)
+
+            if is_wired:
+                pts = [
+                    (b_left + int(scale * 1.8), center_y - int(scale * 4.0)),
+                    (b_left + int(scale * 0.3), center_y + int(scale * 0.2)),
+                    (b_left + int(scale * 1.8), center_y + int(scale * 0.2)),
+                    (b_left + int(scale * 0.8), center_y + int(scale * 4.5)),
+                    (b_left + int(scale * 3.8), center_y - int(scale * 0.8)),
+                    (b_left + int(scale * 2.2), center_y - int(scale * 0.8)),
+                ]
+                draw.polygon(pts, fill=bolt_color)
+                f_size = int(scale * 10.0) if percentage < 100 else int(scale * 8.5)
+                font = self._get_font(f_size, bold=True)
+                draw.text((center_x + int(scale * 2.0), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+            else:
+                f_size = int(scale * 11.5) if percentage < 100 else int(scale * 9.0)
+                font = self._get_font(f_size, bold=True)
+                draw.text((center_x, center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+
+        down = img.resize((self.tray_size, self.tray_size), Image.Resampling.LANCZOS)
+        return self._apply_alpha_lut(down)
+
+    def set_style(self, style_name):
+        self.current_style = style_name
+        self._save_style(style_name)
+        self._update_ui()
 
     def send_notification(self, title, message):
         """Send native Windows toast notification asynchronously."""
@@ -459,14 +523,12 @@ class XiaomiBatteryMonitor:
             return
 
         if self.is_connected:
-            # Generate new icon
-            self.icon.icon = self.generate_horizontal_battery_icon(self.battery_pct, True, self.is_wired)
+            self.icon.icon = self.generate_icon(self.battery_pct, True, self.is_wired)
             self.icon.title = self._get_status_text()
             if not self.icon.visible:
                 self.icon.visible = True
                 self.promote_taskbar_icon()
         else:
-            # Automated taskbar behavior: completely hide when disconnected
             if self.icon.visible:
                 self.icon.visible = False
 
@@ -475,21 +537,18 @@ class XiaomiBatteryMonitor:
         while self.running:
             success, pct, wired = self.read_battery()
             was_connected = self.is_connected
-            was_wired = self.is_wired
 
             if success:
                 self.is_connected = True
                 self.battery_pct = pct
                 self.is_wired = wired
 
-                # Notify on fresh connection
                 if not was_connected:
                     msg = f"Connected ({pct}%)"
                     if wired:
                         msg += " ⚡ (Wired / Charging)"
                     self.send_notification("Xiaomi Speaker Connected", msg)
 
-                # Low battery alert
                 if not self.is_wired and pct <= 20 and not self.low_battery_warned:
                     self.send_notification(
                         "Xiaomi Speaker Low Battery",
@@ -527,7 +586,6 @@ class XiaomiBatteryMonitor:
 
     def on_setup(self, icon):
         """Called once icon message pump has started."""
-        # Initial read
         success, pct, wired = self.read_battery()
         if success:
             self.is_connected = True
@@ -538,26 +596,30 @@ class XiaomiBatteryMonitor:
         else:
             self.is_connected = False
             self.is_wired = False
-            # When disconnected at boot, stay invisible until speaker turns on
             icon.visible = False
 
-        # Launch polling thread
         worker = threading.Thread(target=self.poll_loop, daemon=True)
         worker.start()
 
     def run(self):
-        # Initial read for startup icon
         success, pct, wired = self.read_battery()
         if success:
             self.is_connected = True
             self.battery_pct = pct
             self.is_wired = wired
 
-        init_icon = self.generate_horizontal_battery_icon(self.battery_pct, self.is_connected, self.is_wired)
+        init_icon = self.generate_icon(self.battery_pct, self.is_connected, self.is_wired)
 
         menu = pystray.Menu(
             item(lambda text: self._get_status_text(), None, enabled=False),
             pystray.Menu.SEPARATOR,
+            item("Style", pystray.Menu(
+                item("Clean Digits (Mouse Match) [Recommended]", lambda: self.set_style("clean"), checked=lambda item: self.current_style == "clean", radio=True),
+                item("Open Battery Brackets [ 80 ]", lambda: self.set_style("brackets"), checked=lambda item: self.current_style == "brackets", radio=True),
+                item("Top Accent Bar (— 80 —)", lambda: self.set_style("topbar"), checked=lambda item: self.current_style == "topbar", radio=True),
+                item("Speaker + Digits (🔊 80)", lambda: self.set_style("speaker"), checked=lambda item: self.current_style == "speaker", radio=True),
+                item("Thin Battery Capsule", lambda: self.set_style("capsule"), checked=lambda item: self.current_style == "capsule", radio=True),
+            )),
             item("Refresh Now", self.manual_refresh),
             item("Wired / Charging Mode", self.toggle_wired_mode, checked=lambda item: self.is_wired),
             item("Start with Windows", self.toggle_startup, checked=lambda item: self.check_startup_enabled()),
