@@ -212,32 +212,37 @@ class XiaomiBatteryMonitor:
             return False
 
     def read_battery(self):
-        """Scan Windows DevNode tree for Bluetooth Hands-Free AG battery level & wired status."""
-        found_pct = None
+        """Scan Windows DevNode tree for Bluetooth connection state, battery level & wired status."""
+        is_bluetooth_connected = False
+        battery_pct = None
 
         def scan(dn):
-            nonlocal found_pct
-            if found_pct is not None:
-                return
-            buf = (ctypes.c_byte * 64)()
-            bufSize = wintypes.ULONG(64)
+            nonlocal is_bluetooth_connected, battery_pct
+            name_buf = (ctypes.c_wchar * 256)()
+            name_size = wintypes.ULONG(512)
             propType = wintypes.ULONG()
-            if cfgmgr32.CM_Get_DevNode_PropertyW(dn, ctypes.byref(bat_key), ctypes.byref(propType), buf, ctypes.byref(bufSize), 0) == 0:
-                name_buf = (ctypes.c_wchar * 256)()
-                name_size = wintypes.ULONG(512)
-                cfgmgr32.CM_Get_DevNode_PropertyW(dn, ctypes.byref(name_key), ctypes.byref(propType), name_buf, ctypes.byref(name_size), 0)
+
+            if cfgmgr32.CM_Get_DevNode_PropertyW(dn, ctypes.byref(name_key), ctypes.byref(propType), name_buf, ctypes.byref(name_size), 0) == 0:
                 raw_name = name_buf.value
                 if self.target_name.lower() in raw_name.lower():
-                    # Check whether this Bluetooth DevNode is actively connected
-                    c_buf = (ctypes.c_byte * 16)()
-                    c_size = wintypes.ULONG(16)
-                    is_active = True
-                    if cfgmgr32.CM_Get_DevNode_PropertyW(dn, ctypes.byref(conn_key), ctypes.byref(propType), c_buf, ctypes.byref(c_size), 0) == 0:
-                        is_active = (c_buf[0] != 0)
+                    id_buf = (ctypes.c_wchar * 512)()
+                    cfgmgr32.CM_Get_Device_IDW(dn, id_buf, 512, 0)
+                    dev_id = id_buf.value.lower()
 
-                    if is_active:
-                        found_pct = int(buf[0])
-                        return
+                    # 1. Check IsConnected on the main Bluetooth Device Node (BTHENUM\DEV_...)
+                    if 'bthenum\\dev_' in dev_id:
+                        c_buf = (ctypes.c_byte * 16)()
+                        c_size = wintypes.ULONG(16)
+                        if cfgmgr32.CM_Get_DevNode_PropertyW(dn, ctypes.byref(conn_key), ctypes.byref(propType), c_buf, ctypes.byref(c_size), 0) == 0:
+                            if c_buf[0] != 0:
+                                is_bluetooth_connected = True
+
+                    # 2. Check Battery Level (on Hands-Free AG or any child node)
+                    if battery_pct is None:
+                        bat_buf = (ctypes.c_byte * 64)()
+                        bat_size = wintypes.ULONG(64)
+                        if cfgmgr32.CM_Get_DevNode_PropertyW(dn, ctypes.byref(bat_key), ctypes.byref(propType), bat_buf, ctypes.byref(bat_size), 0) == 0:
+                            battery_pct = int(bat_buf[0])
 
             child = wintypes.DWORD()
             if cfgmgr32.CM_Get_Child(ctypes.byref(child), dn, 0) == 0:
@@ -252,8 +257,9 @@ class XiaomiBatteryMonitor:
 
         wired = self.check_wired_connection()
 
-        if found_pct is not None:
-            return True, found_pct, wired
+        if is_bluetooth_connected:
+            pct = battery_pct if battery_pct is not None else self.battery_pct
+            return True, pct, wired
         elif wired:
             return True, self.battery_pct, True
         return False, None, False
