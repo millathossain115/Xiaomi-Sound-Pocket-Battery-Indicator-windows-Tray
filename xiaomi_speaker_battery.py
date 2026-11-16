@@ -304,23 +304,27 @@ class XiaomiBatteryMonitor:
         center_y = buf_size // 2
         sw = max(2, int(scale * 1.0))  # 1 physical screen pixel
 
-        # STYLE 1: TYPICAL LAPTOP / MOBILE BATTERY GAUGE (Shape & Progress, No Numbers)
+        # STYLE 1: TYPICAL LAPTOP / MOBILE BATTERY GAUGE (Elongated Landscape Capsule)
         if self.current_style == "gauge":
-            sw = max(2, int(scale * 1.2))  # Crisp 1.2px outline
+            sw = max(2, int(scale * 1.15))  # Crisp 1.15px outline
 
-            # Expanded landscape battery body (14.5px tall, 16px wide)
-            b_left = int(scale * 0.8)
-            b_right = int(scale * 16.8)
-            b_top = int(scale * 3.0)
-            b_bot = int(scale * 17.0)
-            b_rad = int(scale * 2.2)
+            # Maximum edge-to-edge horizontal width: 19.2px total
+            b_left = int(scale * 0.4)
+            b_right = int(scale * 17.0)
+
+            # Elongated landscape height (10.8px tall for an authentic ~1.8:1 battery ratio)
+            half_h = int(scale * 5.4)
+            b_top = center_y - half_h
+            b_bot = center_y + half_h
+            b_rad = int(scale * 2.0)
 
             # Prominent terminal nub on right
             n_left = b_right
-            n_right = min(buf_size - 1, int(scale * 19.4))
-            n_top = int(scale * 6.5)
-            n_bot = int(scale * 13.5)
-            n_rad = int(scale * 1.0)
+            n_right = min(buf_size - 1, int(scale * 19.6))
+            nub_half = int(scale * 2.8)
+            n_top = center_y - nub_half
+            n_bot = center_y + nub_half
+            n_rad = int(scale * 0.8)
 
             draw.rounded_rectangle([b_left, b_top, b_right, b_bot], radius=b_rad, outline=frame_color, width=sw)
             draw.rounded_rectangle([n_left, n_top, n_right, n_bot], radius=n_rad, fill=frame_color)
@@ -337,7 +341,7 @@ class XiaomiBatteryMonitor:
 
             if fill_w > 0:
                 fill_right = f_left + fill_w
-                f_rad = max(1, int(scale * 0.8))
+                f_rad = max(1, int(scale * 0.7))
                 draw.rounded_rectangle([f_left, f_top, fill_right, f_bot], radius=f_rad, fill=frame_color)
 
         # STYLE 2: MINI HI-FI SPEAKER (🔊 80)
