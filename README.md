@@ -65,9 +65,12 @@ Quick actions and controls available directly from the system tray:
 - **Automated Taskbar Presence (Zero Clutter):**
   - **Auto-Shows**: Automatically pops onto your taskbar the moment your speaker connects.
   - **Auto-Hides**: Completely disappears from the taskbar when the speaker is powered off or disconnected. No dead ghost icons.
-- **Modern Horizontal Battery Capsule:**
-  - True landscape battery proportions (width:height $\approx$ 1.5:1) with a distinct terminal nipple.
-  - Ample horizontal breathing room ($>18\text{px}$ internal clearance) so digits never rub or collide with borders.
+- **5 Customizable Display Styles (Selectable via Context Menu):**
+  - **Clean Digits (Mouse Match) [Default]**: Full-height (14px) bold Segoe UI digits matching wireless mouse battery indicators for maximum glanceability and zero border crowding.
+  - **Open Battery Brackets `[ 80 ]`**: Open vertical battery brackets with terminal nub, freeing top/bottom space for large 13px numbers.
+  - **Top Accent Bar `— 80 —`**: Modern minimalist top battery level bar.
+  - **Speaker + Digits `🔊 80`**: Audio speaker glyph alongside crisp battery numbers.
+  - **Thin Battery Capsule**: Classic 1px hairline rounded landscape capsule.
 - **Type-C Wired & Charging Detection:**
   - Detects when the speaker is plugged in via USB Type-C wire for charging.
   - Dynamically highlights in **Windows 11 Active Accent Blue** (`#38B9FF`) with an integrated lightning bolt (`⚡`) badge.
