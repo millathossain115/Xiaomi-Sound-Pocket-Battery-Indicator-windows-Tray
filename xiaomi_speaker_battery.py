@@ -153,16 +153,16 @@ class XiaomiBatteryMonitor:
         return 20  # Fallback for standard 125% DPI display
 
     def _load_saved_style(self):
-        """Load preferred style from registry (defaults to 'speaker')."""
+        """Load preferred style from registry (defaults to 'gauge')."""
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, CONFIG_REG_KEY, 0, winreg.KEY_READ)
             val, _ = winreg.QueryValueEx(key, "IconStyle")
             winreg.CloseKey(key)
-            if val in ("speaker", "waves", "brackets", "audio_disc", "topbar", "clean", "capsule"):
+            if val in ("gauge", "speaker", "waves", "brackets", "topbar", "clean"):
                 return val
         except Exception:
             pass
-        return "speaker"  # Default: distinct audio speaker glyph + large crisp digits
+        return "gauge"  # Default: typical laptop/mobile battery shape + progress (no numbers)
 
     def _save_style(self, style_name):
         try:
@@ -304,8 +304,42 @@ class XiaomiBatteryMonitor:
         center_y = buf_size // 2
         sw = max(2, int(scale * 1.0))  # 1 physical screen pixel
 
-        # STYLE 1: MINI HI-FI SPEAKER (🔊 80) - Distinct audio identity + large digits
-        if self.current_style == "speaker":
+        # STYLE 1: TYPICAL LAPTOP / MOBILE BATTERY GAUGE (Shape & Progress, No Numbers)
+        if self.current_style == "gauge":
+            # Landscape battery body
+            b_left = int(scale * 1.5)
+            b_right = int(scale * 16.0)
+            b_top = int(scale * 5.2)
+            b_bot = int(scale * 14.8)
+            b_rad = int(scale * 1.8)
+
+            # Terminal nub on right
+            n_left = b_right
+            n_right = min(buf_size - 1, int(scale * 18.2))
+            n_top = int(scale * 7.6)
+            n_bot = int(scale * 12.4)
+            n_rad = int(scale * 0.8)
+
+            draw.rounded_rectangle([b_left, b_top, b_right, b_bot], radius=b_rad, outline=frame_color, width=sw)
+            draw.rounded_rectangle([n_left, n_top, n_right, n_bot], radius=n_rad, fill=frame_color)
+
+            # Interior progress bar (fills proportionally 0%..100%)
+            gap = int(scale * 1.0)
+            f_left = b_left + sw + gap
+            f_top = b_top + sw + gap
+            f_right_max = b_right - sw - gap
+            f_bot = b_bot - sw - gap
+
+            total_w = f_right_max - f_left
+            fill_w = max(0, int(total_w * (percentage / 100.0)))
+
+            if fill_w > 0:
+                fill_right = f_left + fill_w
+                f_rad = max(1, int(scale * 0.8))
+                draw.rounded_rectangle([f_left, f_top, fill_right, f_bot], radius=f_rad, fill=frame_color)
+
+        # STYLE 2: MINI HI-FI SPEAKER (🔊 80)
+        elif self.current_style == "speaker":
             # Speaker box
             draw.rounded_rectangle([int(scale * 1.0), int(scale * 7.5), int(scale * 2.8), int(scale * 12.5)], radius=int(scale * 0.5), fill=frame_color)
             # Speaker cone
@@ -612,11 +646,11 @@ class XiaomiBatteryMonitor:
             item(lambda text: self._get_status_text(), None, enabled=False),
             pystray.Menu.SEPARATOR,
             item("Style", pystray.Menu(
-                item("Mini Hi-Fi Speaker (🔊 80) [Recommended]", lambda: self.set_style("speaker"), checked=lambda item: self.current_style == "speaker", radio=True),
+                item("Typical Battery Gauge (Shape & Progress) [Default]", lambda: self.set_style("gauge"), checked=lambda item: self.current_style == "gauge", radio=True),
+                item("Mini Hi-Fi Speaker (🔊 80)", lambda: self.set_style("speaker"), checked=lambda item: self.current_style == "speaker", radio=True),
                 item("Equalizer Audio Waves (ılı 80)", lambda: self.set_style("waves"), checked=lambda item: self.current_style == "waves", radio=True),
                 item("Open Battery Brackets [ 80 ]", lambda: self.set_style("brackets"), checked=lambda item: self.current_style == "brackets", radio=True),
                 item("Speaker Driver Disc (◎ 80)", lambda: self.set_style("audio_disc"), checked=lambda item: self.current_style == "audio_disc", radio=True),
-                item("Top Accent Bar (— 80 —)", lambda: self.set_style("topbar"), checked=lambda item: self.current_style == "topbar", radio=True),
                 item("Clean Digits (80)", lambda: self.set_style("clean"), checked=lambda item: self.current_style == "clean", radio=True),
             )),
             item("Refresh Now", self.manual_refresh),
