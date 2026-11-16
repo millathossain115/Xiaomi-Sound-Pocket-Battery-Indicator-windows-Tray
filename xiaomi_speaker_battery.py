@@ -153,16 +153,16 @@ class XiaomiBatteryMonitor:
         return 20  # Fallback for standard 125% DPI display
 
     def _load_saved_style(self):
-        """Load preferred style from registry (defaults to 'clean')."""
+        """Load preferred style from registry (defaults to 'speaker')."""
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, CONFIG_REG_KEY, 0, winreg.KEY_READ)
             val, _ = winreg.QueryValueEx(key, "IconStyle")
             winreg.CloseKey(key)
-            if val in ("clean", "brackets", "topbar", "speaker", "capsule", "waves"):
+            if val in ("speaker", "waves", "brackets", "audio_disc", "topbar", "clean", "capsule"):
                 return val
         except Exception:
             pass
-        return "clean"  # Default: borderless clean bold digits matching mouse icon
+        return "speaker"  # Default: distinct audio speaker glyph + large crisp digits
 
     def _save_style(self, style_name):
         try:
@@ -304,39 +304,62 @@ class XiaomiBatteryMonitor:
         center_y = buf_size // 2
         sw = max(2, int(scale * 1.0))  # 1 physical screen pixel
 
-        # STYLE 1: CLEAN DIGITS (MOUSE MATCH) - Maximum clarity & size
-        if self.current_style == "clean":
-            if is_wired:
-                # Small crisp lightning bolt on left
-                bolt_pts = [
-                    (int(scale * 3.8), int(scale * 2.5)),
-                    (int(scale * 1.6), int(scale * 7.0)),
-                    (int(scale * 3.8), int(scale * 7.0)),
-                    (int(scale * 2.2), int(scale * 12.0)),
-                    (int(scale * 6.2), int(scale * 5.5)),
-                    (int(scale * 4.0), int(scale * 5.5)),
-                ]
-                draw.polygon(bolt_pts, fill=bolt_color)
-                f_size = int(scale * 13.0) if percentage < 100 else int(scale * 10.5)
-                font = self._get_font(f_size, bold=True)
-                draw.text((center_x + int(scale * 2.2), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
-            else:
-                f_size = int(scale * 14.0) if percentage < 100 else int(scale * 11.0)
-                font = self._get_font(f_size, bold=True)
-                draw.text((center_x, center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+        # STYLE 1: MINI HI-FI SPEAKER (🔊 80) - Distinct audio identity + large digits
+        if self.current_style == "speaker":
+            # Speaker box
+            draw.rounded_rectangle([int(scale * 1.0), int(scale * 7.5), int(scale * 2.8), int(scale * 12.5)], radius=int(scale * 0.5), fill=frame_color)
+            # Speaker cone
+            cone = [
+                (int(scale * 2.8), int(scale * 7.5)),
+                (int(scale * 5.8), int(scale * 4.5)),
+                (int(scale * 5.8), int(scale * 15.5)),
+                (int(scale * 2.8), int(scale * 12.5))
+            ]
+            draw.polygon(cone, fill=frame_color)
 
-        # STYLE 2: OPEN BATTERY BRACKETS [ 80 ] (Full digits, zero vertical crowding)
+            if is_wired:
+                # Active charging lightning bolt next to cone
+                draw.line([(int(scale * 6.5), int(scale * 5.0)), (int(scale * 7.5), int(scale * 10.0)), (int(scale * 6.5), int(scale * 15.0))], fill=bolt_color, width=sw)
+            else:
+                # Sound wave arc
+                draw.arc([int(scale * 5.0), int(scale * 6.0), int(scale * 7.5), int(scale * 14.0)], start=-60, end=60, fill=frame_color, width=sw)
+
+            f_size = int(scale * 13.0) if percentage < 100 else int(scale * 10.5)
+            font = self._get_font(f_size, bold=True)
+            draw.text((int(scale * 14.0), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+
+        # STYLE 2: EQUALIZER AUDIO WAVES (ılı 80)
+        elif self.current_style == "waves":
+            b_w = int(scale * 1.4)
+            draw.rounded_rectangle([int(scale * 1.0), int(scale * 8.0), int(scale * 1.0) + b_w, int(scale * 12.0)], radius=int(scale * 0.7), fill=frame_color)
+            draw.rounded_rectangle([int(scale * 3.4), int(scale * 3.5), int(scale * 3.4) + b_w, int(scale * 16.5)], radius=int(scale * 0.7), fill=frame_color)
+            draw.rounded_rectangle([int(scale * 5.8), int(scale * 5.5), int(scale * 5.8) + b_w, int(scale * 14.5)], radius=int(scale * 0.7), fill=frame_color)
+
+            if is_wired:
+                draw.line([(int(scale * 7.8), int(scale * 4.5)), (int(scale * 7.8), int(scale * 15.5))], fill=bolt_color, width=sw)
+
+            f_size = int(scale * 13.0) if percentage < 100 else int(scale * 10.5)
+            font = self._get_font(f_size, bold=True)
+            draw.text((int(scale * 13.8), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+
+        # STYLE 3: SPEAKER DRIVER / DISC (◎ 80)
+        elif self.current_style == "audio_disc":
+            draw.ellipse([int(scale * 1.0), int(scale * 4.0), int(scale * 7.0), int(scale * 16.0)], outline=frame_color, width=sw)
+            draw.ellipse([int(scale * 3.0), int(scale * 8.5), int(scale * 5.0), int(scale * 11.5)], fill=frame_color)
+
+            f_size = int(scale * 13.0) if percentage < 100 else int(scale * 10.5)
+            font = self._get_font(f_size, bold=True)
+            draw.text((int(scale * 13.8), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+
+        # STYLE 4: OPEN BATTERY BRACKETS [ 80 ]
         elif self.current_style == "brackets":
-            # Left bracket [
             draw.line([(int(scale * 3.5), int(scale * 3.0)), (int(scale * 1.5), int(scale * 3.0))], fill=frame_color, width=sw)
             draw.line([(int(scale * 1.5), int(scale * 3.0)), (int(scale * 1.5), int(scale * 17.0))], fill=frame_color, width=sw)
             draw.line([(int(scale * 1.5), int(scale * 17.0)), (int(scale * 3.5), int(scale * 17.0))], fill=frame_color, width=sw)
 
-            # Right bracket with nipple ]
             draw.line([(int(scale * 16.5), int(scale * 3.0)), (int(scale * 18.5), int(scale * 3.0))], fill=frame_color, width=sw)
             draw.line([(int(scale * 18.5), int(scale * 3.0)), (int(scale * 18.5), int(scale * 17.0))], fill=frame_color, width=sw)
             draw.line([(int(scale * 18.5), int(scale * 17.0)), (int(scale * 16.5), int(scale * 17.0))], fill=frame_color, width=sw)
-            # Terminal nipple
             draw.rounded_rectangle([int(scale * 18.5), int(scale * 7.0), min(buf_size - 1, int(scale * 19.8)), int(scale * 13.0)], radius=int(scale * 0.8), fill=frame_color)
 
             if is_wired:
@@ -353,11 +376,11 @@ class XiaomiBatteryMonitor:
                 font = self._get_font(f_size, bold=True)
                 draw.text((center_x + int(scale * 2.0), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
             else:
-                f_size = int(scale * 13.0) if percentage < 100 else int(scale * 10.5)
+                f_size = int(scale * 12.5) if percentage < 100 else int(scale * 10.0)
                 font = self._get_font(f_size, bold=True)
                 draw.text((center_x, center_y), str(percentage), font=font, fill=num_color, anchor="mm")
 
-        # STYLE 3: TOP ACCENT BAR (— 80 —)
+        # STYLE 5: TOP ACCENT BAR (— 80 —)
         elif self.current_style == "topbar":
             bar_y1 = int(scale * 2.0)
             bar_y2 = int(scale * 3.5)
@@ -382,48 +405,23 @@ class XiaomiBatteryMonitor:
                 font = self._get_font(f_size, bold=True)
                 draw.text((center_x, center_y + int(scale * 1.0)), str(percentage), font=font, fill=num_color, anchor="mm")
 
-        # STYLE 4: SPEAKER + DIGITS (🔊 80)
-        elif self.current_style == "speaker":
-            # Speaker cone
-            draw.rectangle([int(scale * 1.0), int(scale * 7.5), int(scale * 2.8), int(scale * 12.5)], fill=frame_color)
-            cone = [(int(scale * 2.8), int(scale * 7.5)), (int(scale * 5.5), int(scale * 5.0)), (int(scale * 5.5), int(scale * 15.0)), (int(scale * 2.8), int(scale * 12.5))]
-            draw.polygon(cone, fill=frame_color)
-            if is_wired:
-                draw.line([(int(scale * 6.2), int(scale * 5.0)), (int(scale * 7.2), int(scale * 10.0)), (int(scale * 6.2), int(scale * 15.0))], fill=bolt_color, width=sw)
-
-            f_size = int(scale * 12.5) if percentage < 100 else int(scale * 10.0)
-            font = self._get_font(f_size, bold=True)
-            draw.text((int(scale * 13.2), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
-
-        # STYLE 5: THIN BATTERY CAPSULE
+        # STYLE 6: CLEAN BORDERLESS DIGITS (80)
         else:
-            b_left = max(2, int(scale * 1.0))
-            b_right = int(scale * 17.0)
-            b_top = int(scale * 2.5)
-            b_bot = int(scale * 17.5)
-            n_left = b_right
-            n_right = min(buf_size - 1, int(scale * 18.8))
-            n_top = int(scale * 6.5)
-            n_bot = int(scale * 13.5)
-
-            draw.rounded_rectangle([b_left, b_top, b_right, b_bot], radius=int(scale * 2.5), outline=frame_color, width=sw)
-            draw.rounded_rectangle([n_left, n_top, n_right, n_bot], radius=int(scale * 1.0), fill=frame_color)
-
             if is_wired:
-                pts = [
-                    (b_left + int(scale * 1.8), center_y - int(scale * 4.0)),
-                    (b_left + int(scale * 0.3), center_y + int(scale * 0.2)),
-                    (b_left + int(scale * 1.8), center_y + int(scale * 0.2)),
-                    (b_left + int(scale * 0.8), center_y + int(scale * 4.5)),
-                    (b_left + int(scale * 3.8), center_y - int(scale * 0.8)),
-                    (b_left + int(scale * 2.2), center_y - int(scale * 0.8)),
+                bolt_pts = [
+                    (int(scale * 3.8), int(scale * 2.5)),
+                    (int(scale * 1.6), int(scale * 7.0)),
+                    (int(scale * 3.8), int(scale * 7.0)),
+                    (int(scale * 2.2), int(scale * 12.0)),
+                    (int(scale * 6.2), int(scale * 5.5)),
+                    (int(scale * 4.0), int(scale * 5.5)),
                 ]
-                draw.polygon(pts, fill=bolt_color)
-                f_size = int(scale * 10.0) if percentage < 100 else int(scale * 8.5)
+                draw.polygon(bolt_pts, fill=bolt_color)
+                f_size = int(scale * 13.0) if percentage < 100 else int(scale * 10.5)
                 font = self._get_font(f_size, bold=True)
-                draw.text((center_x + int(scale * 2.0), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+                draw.text((center_x + int(scale * 2.2), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
             else:
-                f_size = int(scale * 11.5) if percentage < 100 else int(scale * 9.0)
+                f_size = int(scale * 14.0) if percentage < 100 else int(scale * 11.0)
                 font = self._get_font(f_size, bold=True)
                 draw.text((center_x, center_y), str(percentage), font=font, fill=num_color, anchor="mm")
 
@@ -614,11 +612,12 @@ class XiaomiBatteryMonitor:
             item(lambda text: self._get_status_text(), None, enabled=False),
             pystray.Menu.SEPARATOR,
             item("Style", pystray.Menu(
-                item("Clean Digits (Mouse Match) [Recommended]", lambda: self.set_style("clean"), checked=lambda item: self.current_style == "clean", radio=True),
+                item("Mini Hi-Fi Speaker (🔊 80) [Recommended]", lambda: self.set_style("speaker"), checked=lambda item: self.current_style == "speaker", radio=True),
+                item("Equalizer Audio Waves (ılı 80)", lambda: self.set_style("waves"), checked=lambda item: self.current_style == "waves", radio=True),
                 item("Open Battery Brackets [ 80 ]", lambda: self.set_style("brackets"), checked=lambda item: self.current_style == "brackets", radio=True),
+                item("Speaker Driver Disc (◎ 80)", lambda: self.set_style("audio_disc"), checked=lambda item: self.current_style == "audio_disc", radio=True),
                 item("Top Accent Bar (— 80 —)", lambda: self.set_style("topbar"), checked=lambda item: self.current_style == "topbar", radio=True),
-                item("Speaker + Digits (🔊 80)", lambda: self.set_style("speaker"), checked=lambda item: self.current_style == "speaker", radio=True),
-                item("Thin Battery Capsule", lambda: self.set_style("capsule"), checked=lambda item: self.current_style == "capsule", radio=True),
+                item("Clean Digits (80)", lambda: self.set_style("clean"), checked=lambda item: self.current_style == "clean", radio=True),
             )),
             item("Refresh Now", self.manual_refresh),
             item("Wired / Charging Mode", self.toggle_wired_mode, checked=lambda item: self.is_wired),
