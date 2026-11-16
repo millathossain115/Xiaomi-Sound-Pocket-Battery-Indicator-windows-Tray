@@ -94,9 +94,11 @@ MUTEX_NAME = r"Local\Xiaomi_Sound_Pocket_Battery_Monitor_Mutex"
 STARTUP_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 STARTUP_REG_NAME = "XiaomiSpeakerBatteryTray"
 
-# Hardware IDs for Xiaomi Audio
+# Hardware IDs for Xiaomi Audio & Type-C Chipset
 XIAOMI_VID = 0x05D6
 XIAOMI_PID = 0x000A
+JIELI_VID = 0x4C4A   # JieLi (JL) USB SoC used in Xiaomi Sound Pocket
+JIELI_PID = 0x4A55
 
 
 def ensure_single_instance():
@@ -151,7 +153,7 @@ class XiaomiBatteryMonitor:
     def check_wired_connection(self):
         """Check if speaker is wired directly to PC via USB Type-C cable."""
         try:
-            # Check USB DevNodes for Xiaomi Vendor ID or Device Name
+            # Check USB DevNodes for JieLi / Xiaomi USB IDs or Device Name
             found_wired = False
 
             def scan_usb(dn):
@@ -162,7 +164,10 @@ class XiaomiBatteryMonitor:
                 id_buf = (ctypes.c_wchar * 512)()
                 if cfgmgr32.CM_Get_Device_IDW(dn, id_buf, 512, 0) == 0:
                     dev_id = id_buf.value.lower()
-                    if "usb" in dev_id and ("vid_05d6" in dev_id or "pocket" in dev_id or "xiaomi" in dev_id):
+                    if ("vid_4c4a" in dev_id and "pid_4a55" in dev_id) or \
+                       "vid_4c4a" in dev_id or \
+                       "vid_05d6" in dev_id or \
+                       ("usb" in dev_id and ("pocket" in dev_id or "xiaomi" in dev_id)):
                         found_wired = True
                         return
 
@@ -287,59 +292,64 @@ class XiaomiBatteryMonitor:
             bolt_color = white
 
         # 1. Proportional landscape battery capsule dimensions
-        # Width occupies 90% of tile, height occupies 66% (sleek horizontal landscape)
-        b_top = int(buf_size * 0.17)
-        b_bot = int(buf_size * 0.83)
-        b_left = max(1, int(buf_size * 0.02))
-        b_right = int(buf_size * 0.90)
+        # Width occupies 85% of tile, height occupies 65% (sleek horizontal landscape)
+        # Stroke width = exactly 1 physical screen pixel (sw = 4 at scale 4)
+        b_left = max(2, int(scale * 1.0))
+        b_right = int(scale * 17.0)
+        b_top = int(scale * 3.5)
+        b_bot = int(scale * 16.5)
         n_left = b_right
-        n_right = min(buf_size - 1, int(buf_size * 0.98))
-        n_top = int(buf_size * 0.35)
-        n_bot = int(buf_size * 0.65)
-        sw = max(2, int(scale * 1.5))
+        n_right = min(buf_size - 1, int(scale * 18.5))
+        n_top = int(scale * 6.5)
+        n_bot = int(scale * 13.5)
+        sw = max(2, int(scale * 0.95))
 
-        draw.rounded_rectangle([b_left, b_top, b_right, b_bot], radius=int(scale * 3.5), outline=frame_color, width=sw)
-        draw.rounded_rectangle([n_left, n_top, n_right, n_bot], radius=int(scale * 1.2), fill=frame_color)
+        draw.rounded_rectangle([b_left, b_top, b_right, b_bot], radius=int(scale * 2.5), outline=frame_color, width=sw)
+        draw.rounded_rectangle([n_left, n_top, n_right, n_bot], radius=int(scale * 1.0), fill=frame_color)
 
-        # 2. Typography & badges with generous horizontal space
-        font_path = r"C:\Windows\Fonts\seguisb.ttf"
+        # 2. Typography: Segoe UI Regular (clean, un-bolded, wide open gaps!)
+        font_path = r"C:\Windows\Fonts\segoeui.ttf"
         if not os.path.exists(font_path):
-            font_path = r"C:\Windows\Fonts\segoeui.ttf"
+            font_path = r"C:\Windows\Fonts\seguisb.ttf"
 
         center_x = (b_left + b_right) // 2
         center_y = (b_top + b_bot) // 2
 
         if is_wired:
-            # Display lightning bolt badge + clean digits
+            # Display sharp lightning bolt badge + clean digits
+            pts = [
+                (b_left + int(scale * 1.8), center_y - int(scale * 3.5)),
+                (b_left + int(scale * 0.3), center_y + int(scale * 0.2)),
+                (b_left + int(scale * 1.8), center_y + int(scale * 0.2)),
+                (b_left + int(scale * 0.8), center_y + int(scale * 4.0)),
+                (b_left + int(scale * 3.5), center_y - int(scale * 0.8)),
+                (b_left + int(scale * 2.0), center_y - int(scale * 0.8)),
+            ]
+            draw.polygon(pts, fill=bolt_color)
+
             if percentage == 100:
-                bolt_x = b_left + int(scale * 1.8)
-                bolt_y = center_y - int(scale * 4.8)
-                self._draw_lightning_bolt(draw, bolt_x, bolt_y, scale=scale * 0.22, color=bolt_color)
                 try:
-                    font = ImageFont.truetype(font_path, int(scale * 8.2))
+                    font = ImageFont.truetype(font_path, int(scale * 6.5))
                 except Exception:
                     font = ImageFont.load_default()
-                draw.text((center_x + int(scale * 2.2), center_y), "100", font=font, fill=num_color, anchor="mm")
+                draw.text((center_x + int(scale * 2.0), center_y), "100", font=font, fill=num_color, anchor="mm")
             else:
-                bolt_x = b_left + int(scale * 2.4)
-                bolt_y = center_y - int(scale * 5.0)
-                self._draw_lightning_bolt(draw, bolt_x, bolt_y, scale=scale * 0.24, color=bolt_color)
                 try:
-                    font = ImageFont.truetype(font_path, int(scale * 9.5))
+                    font = ImageFont.truetype(font_path, int(scale * 8.0))
                 except Exception:
                     font = ImageFont.load_default()
-                draw.text((center_x + int(scale * 2.5), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
+                draw.text((center_x + int(scale * 2.2), center_y), str(percentage), font=font, fill=num_color, anchor="mm")
         else:
-            # Normal battery: Centered numbers with generous horizontal breathing space
+            # Normal battery: Centered regular digits with generous breathing room
             if percentage == 100:
                 try:
-                    font = ImageFont.truetype(font_path, int(scale * 8.8))
+                    font = ImageFont.truetype(font_path, int(scale * 7.0))
                 except Exception:
                     font = ImageFont.load_default()
                 draw.text((center_x, center_y), "100", font=font, fill=num_color, anchor="mm")
             else:
                 try:
-                    font = ImageFont.truetype(font_path, int(scale * 10.8))
+                    font = ImageFont.truetype(font_path, int(scale * 8.8))
                 except Exception:
                     font = ImageFont.load_default()
                 draw.text((center_x, center_y), str(percentage), font=font, fill=num_color, anchor="mm")
@@ -351,10 +361,10 @@ class XiaomiBatteryMonitor:
         r, g_ch, b, a = final_icon.split()
         lut = []
         for i in range(256):
-            if i < 35:
+            if i < 30:
                 lut.append(0)
             elif i < 110:
-                lut.append(int((i - 35) * (180.0 / 75.0)))
+                lut.append(int((i - 30) * (180.0 / 80.0)))
             else:
                 v = int(180 + (i - 110) * (75.0 / 145.0) * 1.5)
                 lut.append(min(255, v))
