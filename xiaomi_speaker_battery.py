@@ -306,19 +306,21 @@ class XiaomiBatteryMonitor:
 
         # STYLE 1: TYPICAL LAPTOP / MOBILE BATTERY GAUGE (Shape & Progress, No Numbers)
         if self.current_style == "gauge":
-            # Landscape battery body
-            b_left = int(scale * 1.5)
-            b_right = int(scale * 16.0)
-            b_top = int(scale * 5.2)
-            b_bot = int(scale * 14.8)
-            b_rad = int(scale * 1.8)
+            sw = max(2, int(scale * 1.2))  # Crisp 1.2px outline
 
-            # Terminal nub on right
+            # Expanded landscape battery body (14.5px tall, 16px wide)
+            b_left = int(scale * 0.8)
+            b_right = int(scale * 16.8)
+            b_top = int(scale * 3.0)
+            b_bot = int(scale * 17.0)
+            b_rad = int(scale * 2.2)
+
+            # Prominent terminal nub on right
             n_left = b_right
-            n_right = min(buf_size - 1, int(scale * 18.2))
-            n_top = int(scale * 7.6)
-            n_bot = int(scale * 12.4)
-            n_rad = int(scale * 0.8)
+            n_right = min(buf_size - 1, int(scale * 19.4))
+            n_top = int(scale * 6.5)
+            n_bot = int(scale * 13.5)
+            n_rad = int(scale * 1.0)
 
             draw.rounded_rectangle([b_left, b_top, b_right, b_bot], radius=b_rad, outline=frame_color, width=sw)
             draw.rounded_rectangle([n_left, n_top, n_right, n_bot], radius=n_rad, fill=frame_color)
