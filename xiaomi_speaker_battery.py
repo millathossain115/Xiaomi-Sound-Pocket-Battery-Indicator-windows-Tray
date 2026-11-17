@@ -146,6 +146,7 @@ class XiaomiBatteryMonitor:
         self.icon = None
         self.tray_size = self._get_native_tray_size()
         self.current_style = self._load_saved_style()
+        self.ensure_startup_enabled()
 
     def _get_native_tray_size(self):
         """Query physical taskbar icon metric for exact 1:1 pixel rendering."""
@@ -502,6 +503,27 @@ class XiaomiBatteryMonitor:
                 pass
         threading.Thread(target=_show, daemon=True).start()
 
+    def ensure_startup_enabled(self):
+        """Automatically enable Windows startup by default unless explicitly disabled by user."""
+        try:
+            cfg_key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, CONFIG_REG_KEY)
+            try:
+                opt_out, _ = winreg.QueryValueEx(cfg_key, "DisableStartup")
+                if opt_out == 1:
+                    winreg.CloseKey(cfg_key)
+                    return
+            except Exception:
+                pass
+            winreg.CloseKey(cfg_key)
+
+            exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+            cmd = f'"{exe_path}"' if getattr(sys, 'frozen', False) else f'"{sys.executable}" "{exe_path}"'
+            run_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REG_KEY, 0, winreg.KEY_SET_VALUE)
+            winreg.SetValueEx(run_key, STARTUP_REG_NAME, 0, winreg.REG_SZ, cmd)
+            winreg.CloseKey(run_key)
+        except Exception:
+            pass
+
     def check_startup_enabled(self):
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REG_KEY, 0, winreg.KEY_READ)
@@ -513,18 +535,28 @@ class XiaomiBatteryMonitor:
 
     def toggle_startup(self, icon, item):
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REG_KEY, 0, winreg.KEY_ALL_ACCESS)
             if self.check_startup_enabled():
-                winreg.DeleteValue(key, STARTUP_REG_NAME)
+                try:
+                    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REG_KEY, 0, winreg.KEY_SET_VALUE)
+                    winreg.DeleteValue(key, STARTUP_REG_NAME)
+                    winreg.CloseKey(key)
+                except Exception:
+                    pass
+                cfg_key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, CONFIG_REG_KEY)
+                winreg.SetValueEx(cfg_key, "DisableStartup", 0, winreg.REG_DWORD, 1)
+                winreg.CloseKey(cfg_key)
             else:
-                exe_path = sys.executable
-                if getattr(sys, 'frozen', False):
-                    cmd = f'"{exe_path}"'
-                else:
-                    script_path = os.path.abspath(__file__)
-                    cmd = f'"{exe_path}" "{script_path}"'
+                cfg_key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, CONFIG_REG_KEY)
+                try:
+                    winreg.DeleteValue(cfg_key, "DisableStartup")
+                except Exception:
+                    pass
+                winreg.CloseKey(cfg_key)
+                exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                cmd = f'"{exe_path}"' if getattr(sys, 'frozen', False) else f'"{sys.executable}" "{exe_path}"'
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REG_KEY, 0, winreg.KEY_SET_VALUE)
                 winreg.SetValueEx(key, STARTUP_REG_NAME, 0, winreg.REG_SZ, cmd)
-            winreg.CloseKey(key)
+                winreg.CloseKey(key)
         except Exception as e:
             print("Startup toggle error:", e)
 
