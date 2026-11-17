@@ -146,6 +146,7 @@ class XiaomiBatteryMonitor:
         self.icon = None
         self.tray_size = self._get_native_tray_size()
         self.current_style = self._load_saved_style()
+        self.blink_dim = False
         self.ensure_startup_enabled()
 
     def _get_native_tray_size(self):
@@ -292,7 +293,7 @@ class XiaomiBatteryMonitor:
                 lut.append(min(255, v))
         return Image.merge('RGBA', (r, g, b, a.point(lut)))
 
-    def generate_icon(self, percentage, connected, is_wired=False):
+    def generate_icon(self, percentage, connected, is_wired=False, blink_dim=False):
         """Generate icon based on the user's currently selected style."""
         scale = 4
         buf_size = self.tray_size * scale
@@ -301,7 +302,8 @@ class XiaomiBatteryMonitor:
 
         white = (255, 255, 255, 255)
         accent_blue = (56, 185, 255, 255)
-        warning_red = (255, 75, 75, 255)
+        warning_red = (255, 50, 50, 255)
+        dim_red = (140, 30, 30, 90)
 
         if not connected:
             frame_color = (130, 135, 145, 255)
@@ -311,10 +313,10 @@ class XiaomiBatteryMonitor:
             frame_color = accent_blue
             num_color = accent_blue
             bolt_color = accent_blue
-        elif percentage <= 15:
-            frame_color = warning_red
-            num_color = warning_red
-            bolt_color = warning_red
+        elif percentage <= 20:
+            frame_color = dim_red if blink_dim else warning_red
+            num_color = frame_color
+            bolt_color = frame_color
         else:
             frame_color = white
             num_color = white
@@ -496,6 +498,13 @@ class XiaomiBatteryMonitor:
     def send_notification(self, title, message):
         """Send native Windows toast notification asynchronously."""
         def _show():
+            # 1. Native taskbar notification via pystray (Win32 Shell_NotifyIcon)
+            if self.icon and self.icon.visible:
+                try:
+                    self.icon.notify(message, title)
+                except Exception:
+                    pass
+            # 2. Windows 11 Action Center toast
             try:
                 from win11toast import toast
                 toast(title, message)
@@ -612,7 +621,7 @@ class XiaomiBatteryMonitor:
             return
 
         if self.is_connected:
-            self.icon.icon = self.generate_icon(self.battery_pct, True, self.is_wired)
+            self.icon.icon = self.generate_icon(self.battery_pct, True, self.is_wired, blink_dim=self.blink_dim)
             self.icon.title = self._get_status_text()
             if not self.icon.visible:
                 self.icon.visible = True
@@ -620,6 +629,29 @@ class XiaomiBatteryMonitor:
         else:
             if self.icon.visible:
                 self.icon.visible = False
+
+    def blink_loop(self):
+        """Blink red indicator when battery is <= 20% to mirror physical speaker LED."""
+        dim = False
+        while self.running:
+            if self.is_connected and not self.is_wired and self.battery_pct <= 20:
+                dim = not dim
+                self.blink_dim = dim
+                if self.icon and self.icon.visible:
+                    try:
+                        self.icon.icon = self.generate_icon(self.battery_pct, True, self.is_wired, blink_dim=self.blink_dim)
+                    except Exception:
+                        pass
+                time.sleep(0.75)
+            else:
+                if self.blink_dim:
+                    self.blink_dim = False
+                    if self.icon and self.icon.visible:
+                        try:
+                            self.icon.icon = self.generate_icon(self.battery_pct, self.is_connected, self.is_wired, blink_dim=False)
+                        except Exception:
+                            pass
+                time.sleep(1.0)
 
     def poll_loop(self):
         """Continuous background monitor with auto-show / auto-hide automation."""
@@ -640,11 +672,11 @@ class XiaomiBatteryMonitor:
 
                 if not self.is_wired and pct <= 20 and not self.low_battery_warned:
                     self.send_notification(
-                        "Xiaomi Speaker Low Battery",
-                        f"Speaker battery is low ({pct}%). Please recharge soon!"
+                        "Xiaomi Speaker Low Battery 🪫",
+                        f"Speaker battery is at {pct}%. Please connect the charger!"
                     )
                     self.low_battery_warned = True
-                elif self.is_wired or pct > 30:
+                elif self.is_wired or pct > 20:
                     self.low_battery_warned = False
             else:
                 self.is_connected = False
@@ -689,6 +721,8 @@ class XiaomiBatteryMonitor:
 
         worker = threading.Thread(target=self.poll_loop, daemon=True)
         worker.start()
+        blink_worker = threading.Thread(target=self.blink_loop, daemon=True)
+        blink_worker.start()
 
     def run(self):
         success, pct, wired = self.read_battery()
